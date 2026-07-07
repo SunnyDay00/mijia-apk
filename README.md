@@ -1,15 +1,19 @@
-# 小米智能插座 3 局域网 HTTP 控制服务
+# 米家智能插座电量控制 APK
 
-这个项目把小米智能插座 3 的局域网 miIO/MIOT 控制封装成一个普通 HTTP API。手机只需要按电量阈值请求本服务：
+这个仓库的目标是生成一个 Android APK：手机直接根据自身电量，通过局域网 miIO/MIOT 协议控制小米智能插座 3 开关。
 
-- 电量达到上限：`POST /plug/off`，关闭插座，停止充电
-- 电量降到下限：`POST /plug/on`，打开插座，恢复充电
+- 电量达到上限：关闭插座，停止充电
+- 电量降到下限：开启插座，恢复充电
+- 支持在 App 内填写插座 `IP`、`token`、高低电量阈值
+- 支持手动开启、关闭、读取插座状态
+- 支持前台服务监听电量变化，启用后开机自动恢复
 
 ## 方案边界
 
-- 本项目走局域网控制，需要插座 `IP` 和 32 位 `token`。
+- APK 走局域网控制，需要插座 `IP` 和 32 位 `token`。
 - [Do1e/mijia-api](https://github.com/Do1e/mijia-api) 是很好的米家云 API 参考，适合登录、列设备、云端属性读写；但它不是局域网控制协议实现。
-- 本项目直接实现 miIO 局域网 UDP 协议，不依赖米家云端；服务端必须和插座在同一局域网，且电脑/服务器防火墙要允许手机访问服务端端口。
+- 本项目直接实现 miIO 局域网 UDP 协议，不依赖米家云端；手机必须和插座在同一局域网。
+- token 只应填写在手机 App 内，不要提交到 GitHub。
 
 ## 小米智能插座 3 默认参数
 
@@ -26,7 +30,44 @@
 
 这些值已经写进 `.env.example`，如果你的设备型号不同，可以在 `.env` 里覆盖。
 
-## 安装
+Android 代码里同样默认使用这组参数。
+
+## GitHub Actions 构建 APK
+
+仓库推送到 `main` 后会自动运行 `.github/workflows/android-apk.yml`。
+
+也可以在 GitHub 页面手动触发：
+
+1. 打开仓库的 `Actions`。
+2. 选择 `Build Android APK`。
+3. 点击 `Run workflow`。
+4. 构建完成后下载 artifact：`mijia-apk-debug`。
+
+Debug APK 路径：
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+## 手机使用
+
+安装 APK 后：
+
+1. 在路由器后台给插座固定 IP。
+2. 在 App 内填写插座 IP。
+3. 填写插座 32 位 token。
+4. 设置低电量开启阈值和高电量关闭阈值，例如 `40` / `80`。
+5. 点击保存配置。
+6. 先用“读取状态”“开启插座”“关闭插座”测试。
+7. 勾选“启用电量自动控制和开机自启”。
+
+Android 后台会限制长期任务。启用自动控制后，系统会显示前台服务通知；建议在系统电池设置里允许本 App 后台运行。
+
+## Python HTTP 原型服务
+
+仓库仍保留一个 Python HTTP 原型服务。它适合在电脑或局域网服务器上运行，由手机自动化工具发 HTTP 请求控制插座。
+
+### 安装
 
 ```powershell
 cd E:\Code\米家
@@ -42,7 +83,7 @@ PLUG_TOKEN=你的32位token
 API_KEY=自己设置一个给手机用的密钥
 ```
 
-## 启动
+### 启动
 
 ```powershell
 .\scripts\run.ps1
@@ -60,7 +101,7 @@ http://电脑局域网IP:8787
 http://192.168.1.20:8787
 ```
 
-## API
+### API
 
 如果设置了 `API_KEY`，手机请求需要带 `?key=你的密钥`，或请求头 `X-API-Key: 你的密钥`。
 
@@ -85,9 +126,9 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8787/plug/off?key=你的密钥"
 Invoke-RestMethod "http://127.0.0.1:8787/status?key=你的密钥"
 ```
 
-## 手机自动化
+### 手机自动化
 
-### iPhone 快捷指令
+#### iPhone 快捷指令
 
 1. 打开“快捷指令”。
 2. 新建个人自动化：“电池电量”。
@@ -97,7 +138,7 @@ Invoke-RestMethod "http://127.0.0.1:8787/status?key=你的密钥"
 6. 方法选 `POST`。
 7. 再建一个条件：电量低于 `40%`，请求 `http://电脑IP:8787/plug/on?key=你的密钥`。
 
-### Android Tasker / MacroDroid
+#### Android Tasker / MacroDroid
 
 用电池电量作为触发条件：
 

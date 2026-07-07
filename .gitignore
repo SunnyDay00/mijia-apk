@@ -7,3 +7,11 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Android / Gradle
+.gradle/
+local.properties
+captures/
+app/build/
+*.apk
+*.aab
