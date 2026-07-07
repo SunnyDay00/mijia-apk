@@ -15,6 +15,10 @@
 - 本项目直接实现 miIO 局域网 UDP 协议，不依赖米家云端；手机必须和插座在同一局域网。
 - token 只应填写在手机 App 内，不要提交到 GitHub。
 
+## 开源许可
+
+本项目采用 [GPL-3.0](LICENSE) 开源许可证。
+
 ## 小米智能插座 3 默认参数
 
 常见型号：`cuco.plug.v3`
@@ -159,5 +163,4 @@ Invoke-RestMethod "http://127.0.0.1:8787/status?key=你的密钥"
 
 ```powershell
 uv run ruff check .
-uv run pytest
 ```
