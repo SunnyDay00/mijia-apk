@@ -45,21 +45,13 @@ public class PlugAutomationService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
-            AppSettings.save(
-                    this,
-                    AppSettings.plugName(this),
-                    AppSettings.plugIp(this),
-                    AppSettings.plugToken(this),
-                    AppSettings.lowThreshold(this),
-                    AppSettings.highThreshold(this),
-                    false
-            );
+            AppSettings.setRuntimeFlags(this, false, false);
             stopSelf();
             return START_NOT_STICKY;
         }
 
-        if (!AppSettings.automationEnabled(this) || !AppSettings.hasValidPlugConfig(this)) {
-            log("自动控制未启用或插座配置不完整");
+        if (!shouldRun()) {
+            log("常驻通知和自动控制均未启用");
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -100,7 +92,7 @@ public class PlugAutomationService extends Service {
     }
 
     private void evaluateBatteryIntent(Intent intent) {
-        if (!AppSettings.automationEnabled(this) || !AppSettings.hasValidPlugConfig(this)) {
+        if (!shouldRun()) {
             return;
         }
 
@@ -116,11 +108,19 @@ public class PlugAutomationService extends Service {
 
         updateNotification("当前电量 " + percent + "%，阈值 " + low + "% / " + high + "%");
 
+        if (!AppSettings.automationEnabled(this) || !AppSettings.hasValidPlugConfig(this)) {
+            return;
+        }
+
         if (percent >= high) {
             requestPlugState(false, "电量达到 " + percent + "%，关闭插座");
         } else if (percent <= low) {
             requestPlugState(true, "电量降到 " + percent + "%，开启插座");
         }
+    }
+
+    private boolean shouldRun() {
+        return AppSettings.keepAliveEnabled(this) || AppSettings.automationEnabled(this);
     }
 
     private void requestPlugState(boolean on, String reason) {

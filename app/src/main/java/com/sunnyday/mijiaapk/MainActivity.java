@@ -9,7 +9,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
@@ -17,11 +21,11 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import java.util.Locale;
@@ -29,6 +33,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
+    private static final int COLOR_PAGE = 0xfff4f6f8;
+    private static final int COLOR_CARD = 0xffffffff;
+    private static final int COLOR_TEXT = 0xff111827;
+    private static final int COLOR_MUTED = 0xff667085;
+    private static final int COLOR_PRIMARY = 0xff0f766e;
+    private static final int COLOR_SOFT = 0xffe8f5f3;
+    private static final int COLOR_WARNING = 0xfffff7ed;
+
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private EditText nameInput;
@@ -36,11 +48,15 @@ public class MainActivity extends Activity {
     private EditText tokenInput;
     private EditText lowInput;
     private EditText highInput;
-    private CheckBox automationInput;
+    private Switch automationInput;
+    private Switch keepAliveInput;
     private TextView plugSummaryText;
+    private TextView batteryText;
+    private TextView serviceStateText;
     private TextView statusText;
     private TextView logText;
     private BroadcastReceiver logReceiver;
+    private BroadcastReceiver batteryReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,6 +65,8 @@ public class MainActivity extends Activity {
         buildUi();
         loadSettingsIntoUi();
         registerLogReceiver();
+        registerBatteryReceiver();
+        updateBatteryFromStickyIntent();
     }
 
     @Override
@@ -56,101 +74,128 @@ public class MainActivity extends Activity {
         if (logReceiver != null) {
             unregisterReceiver(logReceiver);
         }
+        if (batteryReceiver != null) {
+            unregisterReceiver(batteryReceiver);
+        }
         executor.shutdownNow();
         super.onDestroy();
     }
 
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(COLOR_PAGE);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(18), dp(20), dp(24));
+        root.setPadding(dp(16), dp(14), dp(16), dp(28));
         scroll.addView(root);
 
-        TextView title = new TextView(this);
-        title.setText("米家插座电量控制");
-        title.setTextSize(24);
-        title.setGravity(Gravity.START);
-        root.addView(title, matchWrap());
+        LinearLayout hero = card();
+        hero.setBackground(rounded(COLOR_PRIMARY, 18));
+        TextView title = text("米家插座电量控制", 26, Color.WHITE, Typeface.BOLD);
+        TextView subtitle = text("手机直连局域网插座，按电量阈值自动停止或恢复充电。", 14, 0xffd8fffa, Typeface.NORMAL);
+        subtitle.setPadding(0, dp(6), 0, dp(14));
+        hero.addView(title, matchWrap());
+        hero.addView(subtitle, matchWrap());
 
-        TextView subtitle = smallText("Redmi / HyperOS 已适配：先添加插座，再手动测试，最后启用电量阈值自动控制。");
-        subtitle.setPadding(0, dp(8), 0, dp(12));
-        root.addView(subtitle, matchWrap());
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        batteryText = metric("当前电量", "--%");
+        serviceStateText = metric("服务状态", "未运行");
+        statusRow.addView(batteryText, weightWithRightMargin());
+        statusRow.addView(serviceStateText, weight());
+        hero.addView(statusRow, matchWrap());
+        root.addView(hero, matchWrap());
 
-        plugSummaryText = smallText("");
-        plugSummaryText.setPadding(dp(12), dp(10), dp(12), dp(10));
-        plugSummaryText.setBackgroundColor(0xffeef7f6);
-        root.addView(plugSummaryText, matchWrap());
-
-        root.addView(section("1. 添加插座"));
+        LinearLayout plugCard = card();
+        plugCard.addView(sectionTitle("插座"));
+        plugSummaryText = badge("");
+        plugCard.addView(plugSummaryText, matchWrap());
         nameInput = input("插座名称，例如 床头充电插座", InputType.TYPE_CLASS_TEXT);
         ipInput = input("插座局域网 IP，例如 192.168.1.100", InputType.TYPE_CLASS_TEXT);
         tokenInput = input("32 位 token", InputType.TYPE_CLASS_TEXT);
-        root.addView(label("名称"));
-        root.addView(nameInput, matchWrap());
-        root.addView(label("局域网 IP"));
-        root.addView(ipInput, matchWrap());
-        root.addView(label("Token"));
-        root.addView(tokenInput, matchWrap());
+        plugCard.addView(field("名称", nameInput));
+        plugCard.addView(field("局域网 IP", ipInput));
+        plugCard.addView(field("Token", tokenInput));
+        Button savePlug = primaryButton("添加 / 保存插座");
+        savePlug.setOnClickListener(v -> savePlugSettings());
+        plugCard.addView(savePlug, matchWrap());
+        root.addView(plugCard, matchWrap());
 
-        Button savePlug = button("添加 / 保存插座");
-        savePlug.setOnClickListener(v -> saveSettings());
-        root.addView(savePlug, matchWrap());
-
-        root.addView(section("2. 手动测试"));
+        LinearLayout manualCard = card();
+        manualCard.addView(sectionTitle("手动测试"));
+        manualCard.addView(helper("添加插座后先读取状态，再测试开启和关闭。"));
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button on = button("开启");
-        Button off = button("关闭");
-        Button status = button("状态");
+        Button on = secondaryButton("开启");
+        Button off = secondaryButton("关闭");
+        Button status = secondaryButton("状态");
         on.setOnClickListener(v -> setPlugPower(true));
         off.setOnClickListener(v -> setPlugPower(false));
         status.setOnClickListener(v -> readPlugStatus());
-        actions.addView(on, weight());
-        actions.addView(off, weight());
+        actions.addView(on, weightWithRightMargin());
+        actions.addView(off, weightWithRightMargin());
         actions.addView(status, weight());
-        root.addView(actions, matchWrap());
+        manualCard.addView(actions, matchWrap());
+        root.addView(manualCard, matchWrap());
 
-        root.addView(section("3. 自动阈值"));
+        LinearLayout automationCard = card();
+        automationCard.addView(sectionTitle("自动控制"));
         lowInput = input("低电量开启阈值，例如 40", InputType.TYPE_CLASS_NUMBER);
         highInput = input("高电量关闭阈值，例如 80", InputType.TYPE_CLASS_NUMBER);
         LinearLayout thresholdRow = new LinearLayout(this);
         thresholdRow.setOrientation(LinearLayout.HORIZONTAL);
-        thresholdRow.addView(wrapField("低于多少开启", lowInput), weight());
-        thresholdRow.addView(wrapField("高于多少关闭", highInput), weight());
-        root.addView(thresholdRow, matchWrap());
+        thresholdRow.addView(field("低于多少开启", lowInput), weightWithRightMargin());
+        thresholdRow.addView(field("高于多少关闭", highInput), weight());
+        automationCard.addView(thresholdRow, matchWrap());
 
-        automationInput = new CheckBox(this);
-        automationInput.setText("启用电量自动控制和开机自启");
-        automationInput.setPadding(0, dp(8), 0, dp(8));
+        keepAliveInput = new Switch(this);
+        keepAliveInput.setText("常驻通知，保持电量监听服务运行");
+        keepAliveInput.setTextColor(COLOR_TEXT);
+        keepAliveInput.setTextSize(15);
+        keepAliveInput.setPadding(0, dp(10), 0, dp(6));
+        keepAliveInput.setOnCheckedChangeListener(this::onKeepAliveChanged);
+        automationCard.addView(keepAliveInput, matchWrap());
+
+        automationInput = new Switch(this);
+        automationInput.setText("启用阈值自动开关插座");
+        automationInput.setTextColor(COLOR_TEXT);
+        automationInput.setTextSize(15);
+        automationInput.setPadding(0, dp(6), 0, dp(8));
         automationInput.setOnCheckedChangeListener(this::onAutomationChanged);
-        root.addView(automationInput, matchWrap());
+        automationCard.addView(automationInput, matchWrap());
+        root.addView(automationCard, matchWrap());
 
-        root.addView(section("4. 后台权限"));
-        root.addView(smallText("HyperOS 需要允许通知、自启动和后台运行，否则锁屏后系统可能停止自动控制。"));
+        LinearLayout permissionCard = card();
+        permissionCard.addView(sectionTitle("后台权限"));
+        TextView note = helper("HyperOS 需要允许通知、自启动和后台运行，否则锁屏后可能停止自动控制。");
+        note.setBackground(rounded(COLOR_WARNING, 12));
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        permissionCard.addView(note, matchWrap());
         LinearLayout permissionRow = new LinearLayout(this);
         permissionRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button battery = button("后台运行");
-        Button autostart = button("自启动");
-        Button appSettings = button("应用设置");
+        Button battery = secondaryButton("后台运行");
+        Button autostart = secondaryButton("自启动");
+        Button appSettings = secondaryButton("应用设置");
         battery.setOnClickListener(v -> requestIgnoreBatteryOptimizations());
         autostart.setOnClickListener(v -> openMiuiAutostart());
         appSettings.setOnClickListener(v -> openAppDetails());
-        permissionRow.addView(battery, weight());
-        permissionRow.addView(autostart, weight());
+        permissionRow.addView(battery, weightWithRightMargin());
+        permissionRow.addView(autostart, weightWithRightMargin());
         permissionRow.addView(appSettings, weight());
-        root.addView(permissionRow, matchWrap());
+        permissionCard.addView(permissionRow, matchWrap());
+        root.addView(permissionCard, matchWrap());
 
-        statusText = new TextView(this);
-        statusText.setTextSize(14);
-        statusText.setPadding(0, dp(16), 0, dp(8));
-        root.addView(statusText, matchWrap());
-
-        logText = new TextView(this);
-        logText.setTextSize(13);
+        LinearLayout logCard = card();
+        logCard.addView(sectionTitle("状态日志"));
+        statusText = text("配置已加载", 14, COLOR_MUTED, Typeface.NORMAL);
+        statusText.setPadding(0, 0, 0, dp(8));
+        logCard.addView(statusText, matchWrap());
+        logText = text("", 13, COLOR_MUTED, Typeface.NORMAL);
         logText.setPadding(dp(12), dp(12), dp(12), dp(12));
-        logText.setBackgroundColor(0xffeef2f4);
-        root.addView(logText, matchWrap());
+        logText.setBackground(rounded(0xfff2f4f7, 12));
+        logCard.addView(logText, matchWrap());
+        root.addView(logCard, matchWrap());
 
         setContentView(scroll);
     }
@@ -161,12 +206,14 @@ public class MainActivity extends Activity {
         tokenInput.setText(AppSettings.plugToken(this));
         lowInput.setText(String.format(Locale.US, "%d", AppSettings.lowThreshold(this)));
         highInput.setText(String.format(Locale.US, "%d", AppSettings.highThreshold(this)));
+        keepAliveInput.setChecked(AppSettings.keepAliveEnabled(this));
         automationInput.setChecked(AppSettings.automationEnabled(this));
         updatePlugSummary();
+        updateServiceState();
         status("配置已加载");
     }
 
-    private boolean saveSettings() {
+    private boolean savePlugSettings() {
         String name = nameInput.getText().toString().trim();
         String ip = ipInput.getText().toString().trim();
         String token = tokenInput.getText().toString().trim();
@@ -186,11 +233,20 @@ public class MainActivity extends Activity {
             return false;
         }
 
-        AppSettings.save(this, name, ip, token, low, high, automationInput.isChecked());
+        AppSettings.save(
+                this,
+                name,
+                ip,
+                token,
+                low,
+                high,
+                automationInput.isChecked(),
+                keepAliveInput.isChecked()
+        );
         AppSettings.clearRememberedCommand(this);
         updatePlugSummary();
-        status("插座已添加，建议先读取状态测试连接");
         syncService();
+        status("插座已保存，建议先读取状态测试连接");
         return true;
     }
 
@@ -198,9 +254,22 @@ public class MainActivity extends Activity {
         if (!button.isPressed()) {
             return;
         }
-        if (!saveSettings() && enabled) {
+        if (enabled && !savePlugSettings()) {
             automationInput.setChecked(false);
+            return;
         }
+        AppSettings.setRuntimeFlags(this, enabled, keepAliveInput.isChecked());
+        syncService();
+        status(enabled ? "自动控制已启用" : "自动控制已关闭");
+    }
+
+    private void onKeepAliveChanged(CompoundButton button, boolean enabled) {
+        if (!button.isPressed()) {
+            return;
+        }
+        AppSettings.setRuntimeFlags(this, automationInput.isChecked(), enabled);
+        syncService();
+        status(enabled ? "常驻通知已开启" : "常驻通知已关闭");
     }
 
     private void setPlugPower(boolean on) {
@@ -240,13 +309,13 @@ public class MainActivity extends Activity {
     }
 
     private boolean validateSavedConfig() {
-        return saveSettings() && AppSettings.hasValidPlugConfig(this);
+        return savePlugSettings() && AppSettings.hasValidPlugConfig(this);
     }
 
     private void syncService() {
         Intent service = new Intent(this, PlugAutomationService.class)
                 .setAction(PlugAutomationService.ACTION_REFRESH);
-        if (AppSettings.automationEnabled(this)) {
+        if (AppSettings.automationEnabled(this) || AppSettings.keepAliveEnabled(this)) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(service);
             } else {
@@ -255,6 +324,7 @@ public class MainActivity extends Activity {
         } else {
             stopService(service);
         }
+        updateServiceState();
     }
 
     private void registerLogReceiver() {
@@ -277,6 +347,34 @@ public class MainActivity extends Activity {
         } else {
             registerReceiver(logReceiver, new IntentFilter(PlugAutomationService.BROADCAST_LOG));
         }
+    }
+
+    private void registerBatteryReceiver() {
+        batteryReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                updateBatteryText(intent);
+            }
+        };
+        registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+    }
+
+    private void updateBatteryFromStickyIntent() {
+        Intent sticky = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (sticky != null) {
+            updateBatteryText(sticky);
+        }
+    }
+
+    private void updateBatteryText(Intent intent) {
+        int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+        if (level < 0 || scale <= 0) {
+            batteryText.setText("当前电量\n--%");
+            return;
+        }
+        int percent = Math.round(level * 100f / scale);
+        batteryText.setText("当前电量\n" + percent + "%");
     }
 
     private void requestNotificationPermission() {
@@ -349,6 +447,11 @@ public class MainActivity extends Activity {
         plugSummaryText.setText("当前插座：" + AppSettings.plugSummary(this));
     }
 
+    private void updateServiceState() {
+        boolean running = AppSettings.automationEnabled(this) || AppSettings.keepAliveEnabled(this);
+        serviceStateText.setText(running ? "服务状态\n常驻中" : "服务状态\n未运行");
+    }
+
     private void status(String message) {
         runOnUiThread(() -> statusText.setText(message));
     }
@@ -358,45 +461,95 @@ public class MainActivity extends Activity {
         editText.setHint(hint);
         editText.setInputType(inputType);
         editText.setSingleLine(true);
+        editText.setTextSize(15);
+        editText.setTextColor(COLOR_TEXT);
+        editText.setHintTextColor(0xff98a2b3);
         return editText;
     }
 
-    private TextView label(String text) {
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextSize(13);
-        label.setPadding(0, dp(8), 0, 0);
+    private LinearLayout field(String label, EditText input) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(8), 0, dp(8));
+        box.addView(text(label, 13, COLOR_MUTED, Typeface.NORMAL), matchWrap());
+        box.addView(input, matchWrap());
+        return box;
+    }
+
+    private TextView sectionTitle(String text) {
+        TextView label = text(text, 18, COLOR_TEXT, Typeface.BOLD);
+        label.setPadding(0, 0, 0, dp(10));
         return label;
     }
 
-    private TextView section(String text) {
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextSize(18);
-        label.setPadding(0, dp(18), 0, dp(6));
-        return label;
-    }
-
-    private TextView smallText(String text) {
-        TextView view = new TextView(this);
-        view.setText(text);
-        view.setTextSize(14);
+    private TextView helper(String text) {
+        TextView view = text(text, 14, COLOR_MUTED, Typeface.NORMAL);
+        view.setPadding(0, 0, 0, dp(10));
         return view;
+    }
+
+    private TextView badge(String text) {
+        TextView view = text(text, 14, COLOR_PRIMARY, Typeface.BOLD);
+        view.setPadding(dp(12), dp(10), dp(12), dp(10));
+        view.setBackground(rounded(COLOR_SOFT, 12));
+        return view;
+    }
+
+    private TextView metric(String label, String value) {
+        TextView view = text(label + "\n" + value, 14, Color.WHITE, Typeface.BOLD);
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(dp(10), dp(12), dp(10), dp(12));
+        view.setBackground(rounded(0x22ffffff, 14));
+        return view;
+    }
+
+    private TextView text(String content, int sp, int color, int style) {
+        TextView view = new TextView(this);
+        view.setText(content);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        view.setTypeface(Typeface.DEFAULT, style);
+        return view;
+    }
+
+    private Button primaryButton(String text) {
+        Button button = button(text);
+        button.setTextColor(Color.WHITE);
+        button.setBackground(rounded(COLOR_PRIMARY, 14));
+        return button;
+    }
+
+    private Button secondaryButton(String text) {
+        Button button = button(text);
+        button.setTextColor(COLOR_PRIMARY);
+        button.setBackground(rounded(COLOR_SOFT, 14));
+        return button;
     }
 
     private Button button(String text) {
         Button button = new Button(this);
         button.setText(text);
+        button.setTextSize(14);
+        button.setAllCaps(false);
         return button;
     }
 
-    private LinearLayout wrapField(String label, EditText input) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(0, 0, dp(8), 0);
-        box.addView(label(label));
-        box.addView(input, matchWrap());
-        return box;
+    private LinearLayout card() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(16), dp(16), dp(16));
+        card.setBackground(rounded(COLOR_CARD, 18));
+        LinearLayout.LayoutParams params = matchWrap();
+        params.setMargins(0, 0, 0, dp(12));
+        card.setLayoutParams(params);
+        return card;
+    }
+
+    private GradientDrawable rounded(int color, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radiusDp));
+        return drawable;
     }
 
     private int parsePercent(EditText input, int fallback) {
@@ -416,6 +569,12 @@ public class MainActivity extends Activity {
 
     private LinearLayout.LayoutParams weight() {
         return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+    }
+
+    private LinearLayout.LayoutParams weightWithRightMargin() {
+        LinearLayout.LayoutParams params = weight();
+        params.setMargins(0, 0, dp(8), 0);
+        return params;
     }
 
     private int dp(int value) {

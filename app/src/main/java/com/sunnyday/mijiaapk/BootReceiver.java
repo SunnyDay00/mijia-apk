@@ -11,7 +11,7 @@ public class BootReceiver extends BroadcastReceiver {
         if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
             return;
         }
-        if (!AppSettings.automationEnabled(context) || !AppSettings.hasValidPlugConfig(context)) {
+        if (!AppSettings.automationEnabled(context) && !AppSettings.keepAliveEnabled(context)) {
             return;
         }
 

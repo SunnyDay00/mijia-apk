@@ -14,6 +14,7 @@ final class AppSettings {
     private static final String KEY_HIGH_THRESHOLD = "high_threshold";
     private static final String KEY_LOW_THRESHOLD = "low_threshold";
     private static final String KEY_AUTOMATION_ENABLED = "automation_enabled";
+    private static final String KEY_KEEP_ALIVE_ENABLED = "keep_alive_enabled";
     private static final String KEY_LAST_COMMAND_SET = "last_command_set";
     private static final String KEY_LAST_COMMAND_ON = "last_command_on";
 
@@ -48,6 +49,10 @@ final class AppSettings {
         return prefs(context).getBoolean(KEY_AUTOMATION_ENABLED, false);
     }
 
+    static boolean keepAliveEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_KEEP_ALIVE_ENABLED, false);
+    }
+
     static Boolean lastCommandOn(Context context) {
         SharedPreferences prefs = prefs(context);
         if (!prefs.getBoolean(KEY_LAST_COMMAND_SET, false)) {
@@ -63,7 +68,8 @@ final class AppSettings {
             String token,
             int lowThreshold,
             int highThreshold,
-            boolean automationEnabled
+            boolean automationEnabled,
+            boolean keepAliveEnabled
     ) {
         prefs(context)
                 .edit()
@@ -73,6 +79,19 @@ final class AppSettings {
                 .putInt(KEY_LOW_THRESHOLD, lowThreshold)
                 .putInt(KEY_HIGH_THRESHOLD, highThreshold)
                 .putBoolean(KEY_AUTOMATION_ENABLED, automationEnabled)
+                .putBoolean(KEY_KEEP_ALIVE_ENABLED, keepAliveEnabled)
+                .apply();
+    }
+
+    static void setRuntimeFlags(
+            Context context,
+            boolean automationEnabled,
+            boolean keepAliveEnabled
+    ) {
+        prefs(context)
+                .edit()
+                .putBoolean(KEY_AUTOMATION_ENABLED, automationEnabled)
+                .putBoolean(KEY_KEEP_ALIVE_ENABLED, keepAliveEnabled)
                 .apply();
     }
 
