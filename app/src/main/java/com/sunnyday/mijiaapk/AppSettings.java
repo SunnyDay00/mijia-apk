@@ -8,6 +8,7 @@ final class AppSettings {
     static final int DEFAULT_LOW_THRESHOLD = 40;
 
     private static final String PREFS = "mijia_plug_settings";
+    private static final String KEY_PLUG_NAME = "plug_name";
     private static final String KEY_PLUG_IP = "plug_ip";
     private static final String KEY_PLUG_TOKEN = "plug_token";
     private static final String KEY_HIGH_THRESHOLD = "high_threshold";
@@ -21,6 +22,10 @@ final class AppSettings {
 
     static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    static String plugName(Context context) {
+        return prefs(context).getString(KEY_PLUG_NAME, "小米智能插座 3");
     }
 
     static String plugIp(Context context) {
@@ -53,6 +58,7 @@ final class AppSettings {
 
     static void save(
             Context context,
+            String name,
             String ip,
             String token,
             int lowThreshold,
@@ -61,6 +67,7 @@ final class AppSettings {
     ) {
         prefs(context)
                 .edit()
+                .putString(KEY_PLUG_NAME, normalizePlugName(name))
                 .putString(KEY_PLUG_IP, ip.trim())
                 .putString(KEY_PLUG_TOKEN, token.trim().toLowerCase())
                 .putInt(KEY_LOW_THRESHOLD, lowThreshold)
@@ -89,11 +96,25 @@ final class AppSettings {
         return isValidIpOrHost(plugIp(context)) && isValidToken(plugToken(context));
     }
 
+    static String plugSummary(Context context) {
+        if (!hasValidPlugConfig(context)) {
+            return "还没有添加可用插座";
+        }
+        return plugName(context) + " / " + plugIp(context);
+    }
+
     static boolean isValidToken(String token) {
         return token != null && token.trim().matches("(?i)[0-9a-f]{32}");
     }
 
     static boolean isValidIpOrHost(String value) {
         return value != null && value.trim().length() >= 3 && !value.trim().contains(" ");
+    }
+
+    private static String normalizePlugName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return "小米智能插座 3";
+        }
+        return name.trim();
     }
 }

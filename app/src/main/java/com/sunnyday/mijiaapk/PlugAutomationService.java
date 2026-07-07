@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ServiceInfo;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.IBinder;
@@ -37,7 +38,7 @@ public class PlugAutomationService extends Service {
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, notification("等待电量变化"));
+        startAsForeground("等待电量变化");
         registerBatteryReceiver();
     }
 
@@ -46,6 +47,7 @@ public class PlugAutomationService extends Service {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             AppSettings.save(
                     this,
+                    AppSettings.plugName(this),
                     AppSettings.plugIp(this),
                     AppSettings.plugToken(this),
                     AppSettings.lowThreshold(this),
@@ -187,6 +189,19 @@ public class PlugAutomationService extends Service {
                 .setOngoing(true)
                 .addAction(R.drawable.ic_launcher, "停止", stopIntent)
                 .build();
+    }
+
+    private void startAsForeground(String text) {
+        Notification notification = notification(text);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            );
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
     }
 
     private void updateNotification(String text) {

@@ -2,16 +2,20 @@ package com.sunnyday.mijiaapk;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
@@ -27,11 +31,13 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
+    private EditText nameInput;
     private EditText ipInput;
     private EditText tokenInput;
     private EditText lowInput;
     private EditText highInput;
     private CheckBox automationInput;
+    private TextView plugSummaryText;
     private TextView statusText;
     private TextView logText;
     private BroadcastReceiver logReceiver;
@@ -67,22 +73,47 @@ public class MainActivity extends Activity {
         title.setGravity(Gravity.START);
         root.addView(title, matchWrap());
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("填写插座 IP 和 token 后，手机可按电量阈值直接在局域网内开关插座。");
-        subtitle.setTextSize(14);
-        subtitle.setPadding(0, dp(8), 0, dp(18));
+        TextView subtitle = smallText("Redmi / HyperOS 已适配：先添加插座，再手动测试，最后启用电量阈值自动控制。");
+        subtitle.setPadding(0, dp(8), 0, dp(12));
         root.addView(subtitle, matchWrap());
 
-        ipInput = input("插座 IP，例如 192.168.1.100", InputType.TYPE_CLASS_TEXT);
-        tokenInput = input("32 位 token", InputType.TYPE_CLASS_TEXT);
-        lowInput = input("低电量开启阈值，例如 40", InputType.TYPE_CLASS_NUMBER);
-        highInput = input("高电量关闭阈值，例如 80", InputType.TYPE_CLASS_NUMBER);
+        plugSummaryText = smallText("");
+        plugSummaryText.setPadding(dp(12), dp(10), dp(12), dp(10));
+        plugSummaryText.setBackgroundColor(0xffeef7f6);
+        root.addView(plugSummaryText, matchWrap());
 
-        root.addView(label("插座 IP"));
+        root.addView(section("1. 添加插座"));
+        nameInput = input("插座名称，例如 床头充电插座", InputType.TYPE_CLASS_TEXT);
+        ipInput = input("插座局域网 IP，例如 192.168.1.100", InputType.TYPE_CLASS_TEXT);
+        tokenInput = input("32 位 token", InputType.TYPE_CLASS_TEXT);
+        root.addView(label("名称"));
+        root.addView(nameInput, matchWrap());
+        root.addView(label("局域网 IP"));
         root.addView(ipInput, matchWrap());
-        root.addView(label("插座 Token"));
+        root.addView(label("Token"));
         root.addView(tokenInput, matchWrap());
 
+        Button savePlug = button("添加 / 保存插座");
+        savePlug.setOnClickListener(v -> saveSettings());
+        root.addView(savePlug, matchWrap());
+
+        root.addView(section("2. 手动测试"));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        Button on = button("开启");
+        Button off = button("关闭");
+        Button status = button("状态");
+        on.setOnClickListener(v -> setPlugPower(true));
+        off.setOnClickListener(v -> setPlugPower(false));
+        status.setOnClickListener(v -> readPlugStatus());
+        actions.addView(on, weight());
+        actions.addView(off, weight());
+        actions.addView(status, weight());
+        root.addView(actions, matchWrap());
+
+        root.addView(section("3. 自动阈值"));
+        lowInput = input("低电量开启阈值，例如 40", InputType.TYPE_CLASS_NUMBER);
+        highInput = input("高电量关闭阈值，例如 80", InputType.TYPE_CLASS_NUMBER);
         LinearLayout thresholdRow = new LinearLayout(this);
         thresholdRow.setOrientation(LinearLayout.HORIZONTAL);
         thresholdRow.addView(wrapField("低于多少开启", lowInput), weight());
@@ -95,22 +126,20 @@ public class MainActivity extends Activity {
         automationInput.setOnCheckedChangeListener(this::onAutomationChanged);
         root.addView(automationInput, matchWrap());
 
-        Button save = button("保存配置");
-        save.setOnClickListener(v -> saveSettings());
-        root.addView(save, matchWrap());
-
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button on = button("开启插座");
-        Button off = button("关闭插座");
-        Button status = button("读取状态");
-        on.setOnClickListener(v -> setPlugPower(true));
-        off.setOnClickListener(v -> setPlugPower(false));
-        status.setOnClickListener(v -> readPlugStatus());
-        actions.addView(on, weight());
-        actions.addView(off, weight());
-        actions.addView(status, weight());
-        root.addView(actions, matchWrap());
+        root.addView(section("4. 后台权限"));
+        root.addView(smallText("HyperOS 需要允许通知、自启动和后台运行，否则锁屏后系统可能停止自动控制。"));
+        LinearLayout permissionRow = new LinearLayout(this);
+        permissionRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button battery = button("后台运行");
+        Button autostart = button("自启动");
+        Button appSettings = button("应用设置");
+        battery.setOnClickListener(v -> requestIgnoreBatteryOptimizations());
+        autostart.setOnClickListener(v -> openMiuiAutostart());
+        appSettings.setOnClickListener(v -> openAppDetails());
+        permissionRow.addView(battery, weight());
+        permissionRow.addView(autostart, weight());
+        permissionRow.addView(appSettings, weight());
+        root.addView(permissionRow, matchWrap());
 
         statusText = new TextView(this);
         statusText.setTextSize(14);
@@ -127,15 +156,18 @@ public class MainActivity extends Activity {
     }
 
     private void loadSettingsIntoUi() {
+        nameInput.setText(AppSettings.plugName(this));
         ipInput.setText(AppSettings.plugIp(this));
         tokenInput.setText(AppSettings.plugToken(this));
         lowInput.setText(String.format(Locale.US, "%d", AppSettings.lowThreshold(this)));
         highInput.setText(String.format(Locale.US, "%d", AppSettings.highThreshold(this)));
         automationInput.setChecked(AppSettings.automationEnabled(this));
+        updatePlugSummary();
         status("配置已加载");
     }
 
     private boolean saveSettings() {
+        String name = nameInput.getText().toString().trim();
         String ip = ipInput.getText().toString().trim();
         String token = tokenInput.getText().toString().trim();
         int low = parsePercent(lowInput, AppSettings.DEFAULT_LOW_THRESHOLD);
@@ -154,9 +186,10 @@ public class MainActivity extends Activity {
             return false;
         }
 
-        AppSettings.save(this, ip, token, low, high, automationInput.isChecked());
+        AppSettings.save(this, name, ip, token, low, high, automationInput.isChecked());
         AppSettings.clearRememberedCommand(this);
-        status("配置已保存");
+        updatePlugSummary();
+        status("插座已添加，建议先读取状态测试连接");
         syncService();
         return true;
     }
@@ -165,7 +198,9 @@ public class MainActivity extends Activity {
         if (!button.isPressed()) {
             return;
         }
-        saveSettings();
+        if (!saveSettings() && enabled) {
+            automationInput.setChecked(false);
+        }
     }
 
     private void setPlugPower(boolean on) {
@@ -254,6 +289,66 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void requestIgnoreBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            openMiuiPowerManager();
+            return;
+        }
+
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        if (powerManager != null && powerManager.isIgnoringBatteryOptimizations(getPackageName())) {
+            status("系统已允许忽略电池优化");
+            openMiuiPowerManager();
+            return;
+        }
+
+        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                .setData(Uri.parse("package:" + getPackageName()));
+        if (!openIntent(intent, "无法打开电池优化申请页")) {
+            openMiuiPowerManager();
+        }
+    }
+
+    private void openMiuiAutostart() {
+        Intent intent = new Intent().setComponent(new ComponentName(
+                "com.miui.securitycenter",
+                "com.miui.permcenter.autostart.AutoStartManagementActivity"
+        ));
+        if (!openIntent(intent, "无法打开 HyperOS 自启动页面")) {
+            openAppDetails();
+        }
+    }
+
+    private void openMiuiPowerManager() {
+        Intent intent = new Intent("miui.intent.action.POWER_MANAGER");
+        if (!openIntent(intent, "无法打开 HyperOS 电量管理页面")) {
+            Intent fallback = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+            if (!openIntent(fallback, "无法打开系统电池优化页面")) {
+                openAppDetails();
+            }
+        }
+    }
+
+    private void openAppDetails() {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:" + getPackageName()));
+        openIntent(intent, "无法打开应用设置");
+    }
+
+    private boolean openIntent(Intent intent, String errorMessage) {
+        try {
+            startActivity(intent);
+            return true;
+        } catch (ActivityNotFoundException | SecurityException e) {
+            status(errorMessage + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    private void updatePlugSummary() {
+        plugSummaryText.setText("当前插座：" + AppSettings.plugSummary(this));
+    }
+
     private void status(String message) {
         runOnUiThread(() -> statusText.setText(message));
     }
@@ -272,6 +367,21 @@ public class MainActivity extends Activity {
         label.setTextSize(13);
         label.setPadding(0, dp(8), 0, 0);
         return label;
+    }
+
+    private TextView section(String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(18);
+        label.setPadding(0, dp(18), 0, dp(6));
+        return label;
+    }
+
+    private TextView smallText(String text) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(14);
+        return view;
     }
 
     private Button button(String text) {
