@@ -83,6 +83,32 @@ final class AppSettings {
                 .apply();
     }
 
+    static void savePlug(
+            Context context,
+            String name,
+            String ip,
+            String token
+    ) {
+        prefs(context)
+                .edit()
+                .putString(KEY_PLUG_NAME, normalizePlugName(name))
+                .putString(KEY_PLUG_IP, ip.trim())
+                .putString(KEY_PLUG_TOKEN, token.trim().toLowerCase())
+                .apply();
+    }
+
+    static void setThresholds(
+            Context context,
+            int lowThreshold,
+            int highThreshold
+    ) {
+        prefs(context)
+                .edit()
+                .putInt(KEY_LOW_THRESHOLD, lowThreshold)
+                .putInt(KEY_HIGH_THRESHOLD, highThreshold)
+                .apply();
+    }
+
     static void setRuntimeFlags(
             Context context,
             boolean automationEnabled,
