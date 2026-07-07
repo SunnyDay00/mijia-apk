@@ -1,0 +1,35 @@
+[project]
+name = "mijia-plug-api"
+version = "0.1.0"
+description = "LAN HTTP bridge for Xiaomi Smart Plug 3"
+requires-python = ">=3.11"
+dependencies = [
+    "cryptography>=45.0.5",
+    "fastapi>=0.116.1",
+    "python-dotenv>=1.0.1",
+    "uvicorn[standard]>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4.1",
+    "ruff>=0.12.2",
+]
+
+[project.scripts]
+mijia-plug-api = "mijia_plug_api.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
