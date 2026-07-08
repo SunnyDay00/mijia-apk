@@ -44,6 +44,39 @@ https://github.com/SunnyDay00/mijia-apk
 
 后续可以做“小米账号登录并从米家云端读取设备 token”的功能，但这会引入账号登录、云端接口加密和凭据保存等安全边界。当前版本先保持本地局域网控制，token 只保存在手机 App 本地配置中，不应提交到 GitHub。
 
+### 获取 token 的自部署工具
+
+当前可使用自部署的 Xiaomi Cloud Tokens Extractor Web Tool 获取设备 token：
+
+```text
+https://xiaomi-token-web.ketenglaoshu.workers.dev
+```
+
+原始公开演示地址：
+
+```text
+https://xiaomi-token-web.asd.workers.dev/
+```
+
+本项目优先使用自部署地址。原始公开演示地址只作为来源参考，不建议直接输入小米账号密码。
+
+当前自部署版本基于 `rankjie/xiaomi-tokens-web` fork 后部署到自己的 Cloudflare Worker，并做过以下调整：
+
+- 补充小米双因素认证流程中的 `authStart`、`identity/list`、`result/check`、`Auth2/end`、`STS` 跳转处理。
+- 补充图形验证码流程，登录时如果小米返回 `captchaUrl`，页面会显示图形验证码输入框。
+- 修复图形验证码图片请求返回的挑战 cookie 保留问题，避免明明输入正确仍被小米判定验证码错误。
+- 增加不包含账号密码、验证码、token 明文的诊断日志，便于排查登录阶段卡点。
+
+使用注意事项：
+
+- 只使用这个自部署地址，不要把小米账号密码输入到第三方公开 demo。
+- 建议使用无痕窗口打开，用完后清理该站点的浏览器数据。
+- 登录后如果出现图形验证码，先在工具页面输入图形验证码继续。
+- 如果进入小米双因素认证页面，只在小米页面选择短信或邮箱并发送验证码。
+- 收到 6 位验证码后，不要在小米官网页面提交；回到工具页面输入验证码并点击验证。
+- 复制设备 token 后，只填写到 APK 本地配置中，不要写入源码、README、截图或提交记录。
+- token 获取完成后，如长期不用该工具，建议在 Cloudflare 中停用或删除对应 Worker。
+
 ## 手机使用流程
 
 1. 在路由器后台给插座固定局域网 IP。
