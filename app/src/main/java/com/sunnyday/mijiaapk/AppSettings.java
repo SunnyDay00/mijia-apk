@@ -3,6 +3,10 @@ package com.sunnyday.mijiaapk;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
 final class AppSettings {
     static final int DEFAULT_HIGH_THRESHOLD = 80;
     static final int DEFAULT_LOW_THRESHOLD = 40;
@@ -17,6 +21,8 @@ final class AppSettings {
     private static final String KEY_KEEP_ALIVE_ENABLED = "keep_alive_enabled";
     private static final String KEY_LAST_COMMAND_SET = "last_command_set";
     private static final String KEY_LAST_COMMAND_ON = "last_command_on";
+    private static final String KEY_OPERATION_LOG = "operation_log";
+    private static final int MAX_LOG_LINES = 120;
 
     private AppSettings() {
     }
@@ -97,6 +103,18 @@ final class AppSettings {
                 .apply();
     }
 
+    static void deletePlug(Context context) {
+        prefs(context)
+                .edit()
+                .remove(KEY_PLUG_NAME)
+                .remove(KEY_PLUG_IP)
+                .remove(KEY_PLUG_TOKEN)
+                .remove(KEY_LAST_COMMAND_SET)
+                .remove(KEY_LAST_COMMAND_ON)
+                .putBoolean(KEY_AUTOMATION_ENABLED, false)
+                .apply();
+    }
+
     static void setThresholds(
             Context context,
             int lowThreshold,
@@ -107,6 +125,29 @@ final class AppSettings {
                 .putInt(KEY_LOW_THRESHOLD, lowThreshold)
                 .putInt(KEY_HIGH_THRESHOLD, highThreshold)
                 .apply();
+    }
+
+    static String operationLog(Context context) {
+        return prefs(context).getString(KEY_OPERATION_LOG, "");
+    }
+
+    static void appendOperationLog(Context context, String message) {
+        String now = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(new Date());
+        String line = now + " " + message;
+        String existing = operationLog(context).trim();
+        String combined = existing.isEmpty() ? line : existing + "\n" + line;
+        String[] lines = combined.split("\n");
+        if (lines.length > MAX_LOG_LINES) {
+            StringBuilder builder = new StringBuilder();
+            for (int i = lines.length - MAX_LOG_LINES; i < lines.length; i++) {
+                if (builder.length() > 0) {
+                    builder.append('\n');
+                }
+                builder.append(lines[i]);
+            }
+            combined = builder.toString();
+        }
+        prefs(context).edit().putString(KEY_OPERATION_LOG, combined).commit();
     }
 
     static void setRuntimeFlags(

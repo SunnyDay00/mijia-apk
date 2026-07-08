@@ -211,6 +211,7 @@ public class PlugAutomationService extends Service {
 
     private void log(String message) {
         String now = new SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(new Date());
+        AppSettings.appendOperationLog(this, message);
         Intent intent = new Intent(BROADCAST_LOG)
                 .setPackage(getPackageName())
                 .putExtra(EXTRA_LOG, now + " " + message);

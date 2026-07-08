@@ -3,6 +3,8 @@ package com.sunnyday.mijiaapk;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.AppOpsManager;
+import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -18,6 +20,7 @@ import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
+import android.os.Process;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
@@ -30,6 +33,7 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import java.lang.reflect.Method;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -52,6 +56,7 @@ public class MainActivity extends Activity {
     private Switch keepAliveInput;
     private Button plugHeaderButton;
     private LinearLayout plugContent;
+    private LinearLayout permissionContent;
     private TextView batteryText;
     private TextView serviceStateText;
     private TextView statusText;
@@ -81,6 +86,19 @@ public class MainActivity extends Activity {
         }
         executor.shutdownNow();
         super.onDestroy();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        renderPermissionStatus();
+        updateServiceState();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        renderPermissionStatus();
     }
 
     private void buildUi() {
@@ -195,18 +213,9 @@ public class MainActivity extends Activity {
         note.setBackground(rounded(COLOR_WARNING, 12));
         note.setPadding(dp(12), dp(10), dp(12), dp(10));
         permissionCard.addView(note, matchWrap());
-        LinearLayout permissionRow = new LinearLayout(this);
-        permissionRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button battery = secondaryButton("后台运行");
-        Button autostart = secondaryButton("自启动");
-        Button appSettings = secondaryButton("应用设置");
-        battery.setOnClickListener(v -> requestIgnoreBatteryOptimizations());
-        autostart.setOnClickListener(v -> openMiuiAutostart());
-        appSettings.setOnClickListener(v -> openAppDetails());
-        permissionRow.addView(battery, weightWithRightMargin());
-        permissionRow.addView(autostart, weightWithRightMargin());
-        permissionRow.addView(appSettings, weight());
-        permissionCard.addView(permissionRow, matchWrap());
+        permissionContent = new LinearLayout(this);
+        permissionContent.setOrientation(LinearLayout.VERTICAL);
+        permissionCard.addView(permissionContent, matchWrap());
         root.addView(permissionCard, matchWrap());
 
         LinearLayout logCard = card();
@@ -233,6 +242,8 @@ public class MainActivity extends Activity {
         automationInput.setChecked(AppSettings.automationEnabled(this));
         lastKnownPower = AppSettings.lastCommandOn(this);
         renderPlugSection();
+        renderPermissionStatus();
+        renderLog();
         updateServiceState();
         status("配置已加载");
     }
@@ -289,6 +300,17 @@ public class MainActivity extends Activity {
         actions.addView(on, weightWithRightMargin());
         actions.addView(off, weight());
         plugContent.addView(actions, matchWrap());
+
+        LinearLayout management = new LinearLayout(this);
+        management.setOrientation(LinearLayout.HORIZONTAL);
+        management.setPadding(0, dp(8), 0, 0);
+        Button editConnection = secondaryButton("编辑连接");
+        Button delete = dangerButton("删除插座");
+        editConnection.setOnClickListener(v -> showPlugEditor(true));
+        delete.setOnClickListener(v -> confirmDeletePlug());
+        management.addView(editConnection, weightWithRightMargin());
+        management.addView(delete, weight());
+        plugContent.addView(management, matchWrap());
     }
 
     private LinearLayout emptyPlugView() {
@@ -355,6 +377,8 @@ public class MainActivity extends Activity {
         String name = nameInput.getText().toString().trim();
         String ip = ipInput.getText().toString().trim();
         String token = tokenInput.getText().toString().trim();
+        boolean editing = AppSettings.hasValidPlugConfig(this);
+        String label = name.isEmpty() ? "小米智能插座 3" : name;
 
         if (!AppSettings.isValidIpOrHost(ip)) {
             status("插座 IP 不正确");
@@ -372,8 +396,33 @@ public class MainActivity extends Activity {
         lastKnownPower = null;
         renderPlugSection();
         syncService();
+        record((editing ? "编辑插座：" : "添加插座：") + label + " / " + ip);
         status("插座已保存，可先读取状态测试连接");
         return true;
+    }
+
+    private void confirmDeletePlug() {
+        if (!AppSettings.hasValidPlugConfig(this)) {
+            status("当前没有可删除的插座");
+            return;
+        }
+        String summary = AppSettings.plugSummary(this);
+        new AlertDialog.Builder(this)
+                .setTitle("删除插座")
+                .setMessage("删除后需要重新添加 IP 和 token 才能控制插座。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (dialog, which) -> {
+                    AppSettings.deletePlug(this);
+                    if (automationInput != null) {
+                        automationInput.setChecked(false);
+                    }
+                    lastKnownPower = null;
+                    renderPlugSection();
+                    syncService();
+                    record("删除插座：" + summary);
+                    status("插座已删除");
+                })
+                .show();
     }
 
     private boolean saveThresholdSettings(boolean announce) {
@@ -385,6 +434,7 @@ public class MainActivity extends Activity {
         }
         AppSettings.setThresholds(this, low, high);
         if (announce) {
+            record("更新自动控制阈值：低于 " + low + "% 开启，高于 " + high + "% 关闭");
             status("阈值已保存");
         }
         return true;
@@ -406,6 +456,7 @@ public class MainActivity extends Activity {
         }
         AppSettings.setRuntimeFlags(this, enabled, keepAliveInput.isChecked());
         syncService();
+        record(enabled ? "开启阈值自动控制" : "关闭阈值自动控制");
         status(enabled ? "自动控制已启用" : "自动控制已关闭");
     }
 
@@ -415,6 +466,7 @@ public class MainActivity extends Activity {
         }
         AppSettings.setRuntimeFlags(this, automationInput.isChecked(), enabled);
         syncService();
+        record(enabled ? "开启常驻通知" : "关闭常驻通知");
         status(enabled ? "常驻通知已开启" : "常驻通知已关闭");
     }
 
@@ -429,6 +481,7 @@ public class MainActivity extends Activity {
                 client.setPower(on);
                 AppSettings.rememberCommand(this, on);
                 lastKnownPower = on;
+                recordFromWorker((on ? "开启插座：" : "关闭插座：") + AppSettings.plugSummary(this));
                 runOnUiThread(this::renderPlugSection);
                 status(on ? "插座已开启" : "插座已关闭");
             } catch (Exception e) {
@@ -448,7 +501,10 @@ public class MainActivity extends Activity {
                 if (on != null) {
                     AppSettings.rememberCommand(this, on);
                     lastKnownPower = on;
+                    recordFromWorker("读取插座状态：" + AppSettings.plugSummary(this) + " / " + (on ? "开启" : "关闭"));
                     runOnUiThread(this::renderPlugSection);
+                } else {
+                    recordFromWorker("读取插座状态：" + AppSettings.plugSummary(this) + " / 未知");
                 }
                 status(on == null ? "未读到开关状态" : (on ? "插座当前开启" : "插座当前关闭"));
             } catch (Exception e) {
@@ -484,6 +540,128 @@ public class MainActivity extends Activity {
         updateServiceState();
     }
 
+    private void renderPermissionStatus() {
+        if (permissionContent == null) {
+            return;
+        }
+        permissionContent.removeAllViews();
+        boolean notifications = areNotificationsEnabled();
+        boolean battery = isIgnoringBatteryOptimizations();
+        Boolean autostart = isMiuiAutostartAllowed();
+
+        permissionContent.addView(permissionRow(
+                "通知权限",
+                notifications,
+                notifications ? "已允许显示常驻通知" : "未允许通知，前台服务状态可能不可见",
+                "开启",
+                v -> openNotificationSettings()
+        ));
+        permissionContent.addView(permissionRow(
+                "后台运行",
+                battery,
+                battery ? "已允许忽略电池优化" : "未允许，锁屏后可能停止监听",
+                "开启",
+                v -> requestIgnoreBatteryOptimizations()
+        ));
+        permissionContent.addView(permissionRow(
+                "自启动权限",
+                Boolean.TRUE.equals(autostart),
+                autostart == null
+                        ? "系统未返回状态，请打开设置确认"
+                        : (autostart ? "已允许开机后恢复服务" : "未允许，重启后可能不会恢复"),
+                "开启",
+                v -> openMiuiAutostart()
+        ));
+
+        Button appSettings = secondaryButton("打开应用设置");
+        appSettings.setOnClickListener(v -> openAppDetails());
+        permissionContent.addView(appSettings, matchWrap());
+    }
+
+    private LinearLayout permissionRow(
+            String title,
+            boolean enabled,
+            String detail,
+            String actionText,
+            android.view.View.OnClickListener listener
+    ) {
+        int statusColor = enabled ? 0xff15803d : 0xffb42318;
+        int bgColor = enabled ? 0xffecfdf3 : 0xfffff1f1;
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setBackground(roundedStroke(bgColor, 12, statusColor));
+        LinearLayout.LayoutParams rowParams = matchWrap();
+        rowParams.setMargins(0, dp(10), 0, 0);
+        row.setLayoutParams(rowParams);
+
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        TextView titleView = text(title, 15, COLOR_TEXT, Typeface.BOLD);
+        TextView detailView = text((enabled ? "已开启 · " : "未开启 · ") + detail, 12, statusColor, Typeface.NORMAL);
+        detailView.setPadding(0, dp(4), 0, 0);
+        info.addView(titleView, matchWrap());
+        info.addView(detailView, matchWrap());
+
+        Button action = compactButton(enabled ? "查看" : actionText);
+        action.setOnClickListener(listener);
+        row.addView(info, weightWithRightMargin());
+        row.addView(action, wrap());
+        return row;
+    }
+
+    private boolean areNotificationsEnabled() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            return false;
+        }
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        return manager == null || manager.areNotificationsEnabled();
+    }
+
+    private boolean isIgnoringBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true;
+        }
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        return powerManager != null && powerManager.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    private Boolean isMiuiAutostartAllowed() {
+        try {
+            AppOpsManager appOps = (AppOpsManager) getSystemService(APP_OPS_SERVICE);
+            if (appOps == null) {
+                return null;
+            }
+            Method method = AppOpsManager.class.getDeclaredMethod(
+                    "checkOpNoThrow",
+                    int.class,
+                    int.class,
+                    String.class
+            );
+            method.setAccessible(true);
+            int mode = (Integer) method.invoke(appOps, 10008, Process.myUid(), getPackageName());
+            return mode == AppOpsManager.MODE_ALLOWED;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void openNotificationSettings() {
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+        } else {
+            intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:" + getPackageName()));
+        }
+        openIntent(intent, "无法打开通知设置");
+    }
+
     private void registerLogReceiver() {
         logReceiver = new BroadcastReceiver() {
             @Override
@@ -493,6 +671,7 @@ public class MainActivity extends Activity {
                     return;
                 }
                 logText.append(line + "\n");
+                renderLog();
             }
         };
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -605,6 +784,22 @@ public class MainActivity extends Activity {
         serviceStateText.setText(running ? "服务状态\n常驻中" : "服务状态\n未运行");
     }
 
+    private void renderLog() {
+        if (logText != null) {
+            logText.setText(AppSettings.operationLog(this));
+        }
+    }
+
+    private void record(String message) {
+        AppSettings.appendOperationLog(this, message);
+        renderLog();
+    }
+
+    private void recordFromWorker(String message) {
+        AppSettings.appendOperationLog(this, message);
+        runOnUiThread(this::renderLog);
+    }
+
     private void status(String message) {
         runOnUiThread(() -> {
             if (statusText != null) {
@@ -692,6 +887,13 @@ public class MainActivity extends Activity {
         Button button = button(text);
         button.setTextColor(COLOR_PRIMARY);
         button.setBackground(rounded(COLOR_SOFT, 14));
+        return button;
+    }
+
+    private Button dangerButton(String text) {
+        Button button = button(text);
+        button.setTextColor(0xffb42318);
+        button.setBackground(rounded(0xfffff1f1, 14));
         return button;
     }
 
