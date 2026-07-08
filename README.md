@@ -23,6 +23,16 @@ https://github.com/SunnyDay00/mijia-apk
 - HyperOS 适配：提供后台运行、自启动、应用设置入口。
 - GitHub Actions 构建：APK 通过远端 CI 构建，不依赖本机 Java/Gradle。
 
+## 界面截图
+
+主界面包含当前电量、服务状态、插座控制、阈值设置和自动控制开关：
+
+![主界面与插座控制](docs/images/app-main-control.png)
+
+后台权限和状态日志用于确认 HyperOS / MIUI 长时间运行所需权限：
+
+![后台权限与状态日志](docs/images/app-permissions-log.png)
+
 ## 工作方式
 
 手机和插座必须在同一局域网。App 使用 Android 电池广播读取手机电量，然后通过 miIO 局域网 UDP 协议控制插座。
