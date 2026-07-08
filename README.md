@@ -4,13 +4,7 @@
 
 ## 来源说明
 
-本仓库不是 GitHub 机制上的 fork，仓库由本地创建并推送到：
-
-```text
-https://github.com/SunnyDay00/mijia-apk
-```
-
-项目最初参考了 [Do1e/mijia-api](https://github.com/Do1e/mijia-api) 对米家设备、MIOT 属性和米家云端接口的整理。当前 APK 没有继续保留电脑端 HTTP 原型服务，也不依赖电脑常驻服务；核心控制逻辑已经改为原生 Android 代码直接实现 miIO 局域网协议。
+项目参考了 [Do1e/mijia-api](https://github.com/Do1e/mijia-api) 对米家设备、MIOT 属性和米家云端接口的整理。当前 APK 不依赖电脑常驻服务；核心控制逻辑由原生 Android 代码直接实现 miIO 局域网协议。
 
 ## 已实现功能
 
@@ -54,38 +48,23 @@ https://github.com/SunnyDay00/mijia-apk
 
 后续可以做“小米账号登录并从米家云端读取设备 token”的功能，但这会引入账号登录、云端接口加密和凭据保存等安全边界。当前版本先保持本地局域网控制，token 只保存在手机 App 本地配置中，不应提交到 GitHub。
 
-### 获取 token 的自部署工具
+### 获取 token 的方式
 
-当前可使用自部署的 Xiaomi Cloud Tokens Extractor Web Tool 获取设备 token：
+本项目不内置小米账号登录和云端 token 提取功能。用户需要自行使用可信工具获取已绑定设备的 miIO token，例如：
 
-```text
-https://xiaomi-token-web.ketenglaoshu.workers.dev
-```
+- 原始 Python 工具：[PiotrMachowski/Xiaomi-cloud-tokens-extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor)
+- Web 版源码：[rankjie/xiaomi-tokens-web](https://github.com/rankjie/xiaomi-tokens-web)
+- Web 版公开演示：[https://xiaomi-token-web.asd.workers.dev/](https://xiaomi-token-web.asd.workers.dev/)
 
-原始公开演示地址：
+使用公开托管的 token 提取工具会让小米账号凭据经过第三方服务器。更稳妥的做法是审计源码后在本机运行，或部署到自己的 Cloudflare Workers / Pages 后再使用。
 
-```text
-https://xiaomi-token-web.asd.workers.dev/
-```
+安全注意事项：
 
-本项目优先使用自部署地址。原始公开演示地址只作为来源参考，不建议直接输入小米账号密码。
-
-当前自部署版本基于 `rankjie/xiaomi-tokens-web` fork 后部署到自己的 Cloudflare Worker，并做过以下调整：
-
-- 补充小米双因素认证流程中的 `authStart`、`identity/list`、`result/check`、`Auth2/end`、`STS` 跳转处理。
-- 补充图形验证码流程，登录时如果小米返回 `captchaUrl`，页面会显示图形验证码输入框。
-- 修复图形验证码图片请求返回的挑战 cookie 保留问题，避免明明输入正确仍被小米判定验证码错误。
-- 增加不包含账号密码、验证码、token 明文的诊断日志，便于排查登录阶段卡点。
-
-使用注意事项：
-
-- 只使用这个自部署地址，不要把小米账号密码输入到第三方公开 demo。
-- 建议使用无痕窗口打开，用完后清理该站点的浏览器数据。
-- 登录后如果出现图形验证码，先在工具页面输入图形验证码继续。
-- 如果进入小米双因素认证页面，只在小米页面选择短信或邮箱并发送验证码。
-- 收到 6 位验证码后，不要在小米官网页面提交；回到工具页面输入验证码并点击验证。
-- 复制设备 token 后，只填写到 APK 本地配置中，不要写入源码、README、截图或提交记录。
-- token 获取完成后，如长期不用该工具，建议在 Cloudflare 中停用或删除对应 Worker。
+- 不要把小米账号密码、设备 token、家庭网络信息写入源码、README、Issue、截图或提交记录。
+- 使用 Web 工具时建议使用无痕窗口，用完后清理该站点的浏览器数据。
+- 如果自行部署 Web 工具，token 获取完成后可以停用或删除对应部署。
+- 如果工具要求进行小米双因素认证，应按该工具的说明处理验证码流程；不要把验证码提交到不可信页面。
+- 复制到的设备 token 只应填写到 APK 本地配置中。
 
 ## 手机使用流程
 
